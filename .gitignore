@@ -1,0 +1,4 @@
+# compiled files (made automatically from the .java files)
+out/
+bin/
+*.class

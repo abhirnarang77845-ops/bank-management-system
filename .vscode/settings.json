@@ -1,0 +1,26 @@
+{
+    "java.jdt.ls.java.home": "C:\\Users\\91628\\.jdks\\jdk-21.0.13+9",
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-21",
+            "path": "C:\\Users\\91628\\.jdks\\jdk-21.0.13+9",
+            "default": true
+        }
+    ],
+    "java.project.sourcePaths": ["src"],
+    "java.project.outputPath": "out",
+    "java.project.referencedLibraries": ["lib/**/*.jar"],
+    "files.exclude": {
+        "out": true,
+        "bin": true,
+        "**/*.class": true
+    },
+    "code-runner.runInTerminal": true,
+    "code-runner.saveAllFilesBeforeRun": true,
+    "code-runner.executorMap": {
+        "java": "cd \"$workspaceRoot\"; .\\run.bat"
+    },
+    "terminal.integrated.env.windows": {
+        "PATH": "C:\\Users\\91628\\.jdks\\jdk-21.0.13+9\\bin;${env:PATH}"
+    }
+}
