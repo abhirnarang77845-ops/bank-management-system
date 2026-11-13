@@ -1,3 +1,5 @@
+package model;
+
 // Inheritance: SavingsAccount IS-A Account
 public class SavingsAccount extends Account {
 

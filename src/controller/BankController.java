@@ -1,6 +1,13 @@
+package controller;
+
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
-import org.bson.Document;
+import database.Database;
+import model.Account;
+import model.CurrentAccount;
+import model.InsufficientFundsException;
+import model.SavingsAccount;
+import view.Pages;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -8,22 +15,24 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.UUID;
 
-// Handles every page of the website.
-// It "implements HttpHandler", so Java calls handle() each time the browser asks for a page.
-public class BankHandler implements HttpHandler {
+// CONTROLLER: receives every request from the browser, decides what to do,
+// uses the MODEL (Account classes) + DATABASE, then sends a VIEW (page) back.
+// It "implements HttpHandler", so the web server calls handle() for each request.
+public class BankController implements HttpHandler {
 
     private Database db;
 
     // Who is logged in: session id (saved in the browser as a cookie) -> account number
     private HashMap<String, Integer> sessions = new HashMap<String, Integer>();
 
-    public BankHandler(Database db) {
+    public BankController(Database db) {
         this.db = db;
     }
+
+    // ===================== ROUTING =====================
 
     @Override
     public void handle(HttpExchange ex) throws IOException {
@@ -34,58 +43,51 @@ public class BankHandler implements HttpHandler {
             // values typed in a form (POST) and values in the URL after "?" (GET)
             HashMap<String, String> form = parseParams(readBody(ex));
             HashMap<String, String> query = parseParams(ex.getRequestURI().getRawQuery());
+            String msg = query.get("msg");
+            String err = query.get("err");
 
             if (path.equals("/")) {
-                loginPage(ex, query);
+                showLogin(ex, msg, err);
             } else if (path.equals("/login") && method.equals("POST")) {
-                doLogin(ex, form);
+                login(ex, form);
             } else if (path.equals("/register") && method.equals("GET")) {
-                registerPage(ex, query);
+                send(ex, Pages.register(msg, err));
             } else if (path.equals("/register") && method.equals("POST")) {
-                doRegister(ex, form);
+                register(ex, form);
             } else if (path.equals("/home")) {
-                homePage(ex, query);
+                showHome(ex, msg, err);
             } else if (path.equals("/deposit") && method.equals("POST")) {
-                doDeposit(ex, form);
+                deposit(ex, form);
             } else if (path.equals("/withdraw") && method.equals("POST")) {
-                doWithdraw(ex, form);
+                withdraw(ex, form);
             } else if (path.equals("/transfer") && method.equals("POST")) {
-                doTransfer(ex, form);
+                transfer(ex, form);
             } else if (path.equals("/history")) {
-                historyPage(ex);
+                showHistory(ex);
             } else if (path.equals("/logout")) {
-                doLogout(ex);
+                logout(ex);
             } else if (path.equals("/admin")) {
-                adminPage(ex, form, method);
+                admin(ex, form, method);
             } else {
-                sendPage(ex, "Not found", "<h2>Page not found</h2><a href='/'>Go to login</a>");
+                send(ex, Pages.notFound());
             }
         } catch (Exception e) {
             e.printStackTrace();
-            sendPage(ex, "Error", "<h2>Something went wrong</h2><p>" + escape(String.valueOf(e.getMessage()))
-                    + "</p><a href='/'>Go back</a>");
+            send(ex, Pages.error(String.valueOf(e.getMessage())));
         }
     }
 
     // ===================== LOGIN / REGISTER / LOGOUT =====================
 
-    private void loginPage(HttpExchange ex, HashMap<String, String> query) throws IOException {
+    private void showLogin(HttpExchange ex, String msg, String err) throws IOException {
         if (getLoggedInAccount(ex) != null) {
             redirect(ex, "/home");
             return;
         }
-        String html = "<h1>Bank Login</h1>"
-                + messages(query)
-                + "<form method='POST' action='/login'>"
-                + "<label>Account Number</label><input name='accNo' required>"
-                + "<label>PIN</label><input name='pin' type='password' required>"
-                + "<button>Login</button>"
-                + "</form>"
-                + "<p><a href='/register'>Create new account</a> | <a href='/admin'>Admin</a></p>";
-        sendPage(ex, "Login", html);
+        send(ex, Pages.login(msg, err));
     }
 
-    private void doLogin(HttpExchange ex, HashMap<String, String> form) throws IOException {
+    private void login(HttpExchange ex, HashMap<String, String> form) throws IOException {
         int accNo = toInt(form.get("accNo"));
         int pin = toInt(form.get("pin"));
 
@@ -102,25 +104,7 @@ public class BankHandler implements HttpHandler {
         redirect(ex, "/home");
     }
 
-    private void registerPage(HttpExchange ex, HashMap<String, String> query) throws IOException {
-        String html = "<h1>Create Account</h1>"
-                + messages(query)
-                + "<form method='POST' action='/register'>"
-                + "<label>Account Type</label>"
-                + "<select name='type'>"
-                + "<option value='Savings'>Savings (min balance Rs 1000)</option>"
-                + "<option value='Current'>Current (min opening Rs 5000)</option>"
-                + "</select>"
-                + "<label>Full Name</label><input name='name' required>"
-                + "<label>4-digit PIN</label><input name='pin' type='password' required>"
-                + "<label>Opening Deposit (Rs)</label><input name='amount' required>"
-                + "<button>Create Account</button>"
-                + "</form>"
-                + "<p><a href='/'>Back to login</a></p>";
-        sendPage(ex, "Create Account", html);
-    }
-
-    private void doRegister(HttpExchange ex, HashMap<String, String> form) throws IOException {
+    private void register(HttpExchange ex, HashMap<String, String> form) throws IOException {
         String type = form.get("type");
         String name = form.get("name");
         int pin = toInt(form.get("pin"));
@@ -157,7 +141,7 @@ public class BankHandler implements HttpHandler {
         redirect(ex, "/?msg=" + encode("Account created! Your account number is " + accNo + ". Please login."));
     }
 
-    private void doLogout(HttpExchange ex) throws IOException {
+    private void logout(HttpExchange ex) throws IOException {
         String sessionId = getSessionId(ex);
         if (sessionId != null) {
             sessions.remove(sessionId);
@@ -165,45 +149,27 @@ public class BankHandler implements HttpHandler {
         redirect(ex, "/?msg=" + encode("Logged out"));
     }
 
-    // ===================== HOME (DASHBOARD) =====================
+    // ===================== ACCOUNT PAGES =====================
 
-    private void homePage(HttpExchange ex, HashMap<String, String> query) throws IOException {
+    private void showHome(HttpExchange ex, String msg, String err) throws IOException {
         Account acc = getAccountOrRedirect(ex);
         if (acc == null) {
             return;
         }
+        send(ex, Pages.home(acc, msg, err));
+    }
 
-        String html = "<h1>Welcome, " + escape(acc.getName()) + "</h1>"
-                + messages(query)
-                + "<div class='card'>"
-                + "<p>Account Number: <b>" + acc.getAccountNumber() + "</b></p>"
-                + "<p>Account Type: <b>" + acc.getAccountType() + "</b></p>"
-                + "<p class='balance'>Rs " + money(acc.getBalance()) + "</p>"
-                + "</div>"
-
-                + "<h3>Deposit</h3>"
-                + "<form method='POST' action='/deposit'>"
-                + "<input name='amount' placeholder='Amount' required><button>Deposit</button>"
-                + "</form>"
-
-                + "<h3>Withdraw</h3>"
-                + "<form method='POST' action='/withdraw'>"
-                + "<input name='amount' placeholder='Amount' required><button>Withdraw</button>"
-                + "</form>"
-
-                + "<h3>Transfer Money</h3>"
-                + "<form method='POST' action='/transfer'>"
-                + "<input name='toAccNo' placeholder='Receiver account number' required>"
-                + "<input name='amount' placeholder='Amount' required><button>Transfer</button>"
-                + "</form>"
-
-                + "<p><a href='/history'>Transaction History</a> | <a href='/logout'>Logout</a></p>";
-        sendPage(ex, "Home", html);
+    private void showHistory(HttpExchange ex) throws IOException {
+        Account acc = getAccountOrRedirect(ex);
+        if (acc == null) {
+            return;
+        }
+        send(ex, Pages.history(db.getTransactions(acc.getAccountNumber())));
     }
 
     // ===================== DEPOSIT / WITHDRAW / TRANSFER =====================
 
-    private void doDeposit(HttpExchange ex, HashMap<String, String> form) throws IOException {
+    private void deposit(HttpExchange ex, HashMap<String, String> form) throws IOException {
         Account acc = getAccountOrRedirect(ex);
         if (acc == null) {
             return;
@@ -217,10 +183,10 @@ public class BankHandler implements HttpHandler {
         acc.deposit(amount);
         db.updateBalance(acc);
         db.addTransaction(acc.getAccountNumber(), "Deposit", amount, acc.getBalance());
-        redirect(ex, "/home?msg=" + encode("Deposited Rs " + money(amount)));
+        redirect(ex, "/home?msg=" + encode("Deposited Rs " + Pages.money(amount)));
     }
 
-    private void doWithdraw(HttpExchange ex, HashMap<String, String> form) throws IOException {
+    private void withdraw(HttpExchange ex, HashMap<String, String> form) throws IOException {
         Account acc = getAccountOrRedirect(ex);
         if (acc == null) {
             return;
@@ -235,13 +201,13 @@ public class BankHandler implements HttpHandler {
             acc.withdraw(amount); // Polymorphism: Savings or Current version runs
             db.updateBalance(acc);
             db.addTransaction(acc.getAccountNumber(), "Withdraw", amount, acc.getBalance());
-            redirect(ex, "/home?msg=" + encode("Withdrawn Rs " + money(amount)));
+            redirect(ex, "/home?msg=" + encode("Withdrawn Rs " + Pages.money(amount)));
         } catch (InsufficientFundsException e) {
             redirect(ex, "/home?err=" + encode(e.getMessage()));
         }
     }
 
-    private void doTransfer(HttpExchange ex, HashMap<String, String> form) throws IOException {
+    private void transfer(HttpExchange ex, HashMap<String, String> form) throws IOException {
         Account acc = getAccountOrRedirect(ex);
         if (acc == null) {
             return;
@@ -272,68 +238,22 @@ public class BankHandler implements HttpHandler {
             db.addTransaction(acc.getAccountNumber(), "Transfer to " + toAccNo, amount, acc.getBalance());
             db.addTransaction(toAccNo, "Transfer from " + acc.getAccountNumber(), amount, receiver.getBalance());
 
-            redirect(ex, "/home?msg=" + encode("Transferred Rs " + money(amount) + " to " + receiver.getName()));
+            redirect(ex, "/home?msg=" + encode("Transferred Rs " + Pages.money(amount) + " to " + receiver.getName()));
         } catch (InsufficientFundsException e) {
             redirect(ex, "/home?err=" + encode(e.getMessage()));
         }
     }
 
-    // ===================== HISTORY / ADMIN =====================
+    // ===================== ADMIN =====================
 
-    private void historyPage(HttpExchange ex) throws IOException {
-        Account acc = getAccountOrRedirect(ex);
-        if (acc == null) {
-            return;
+    private void admin(HttpExchange ex, HashMap<String, String> form, String method) throws IOException {
+        if (!method.equals("POST")) {
+            send(ex, Pages.adminLogin(false));
+        } else if ("admin123".equals(form.get("password"))) {
+            send(ex, Pages.allAccounts(db.getAllAccounts()));
+        } else {
+            send(ex, Pages.adminLogin(true));
         }
-
-        String rows = "";
-        for (Document t : db.getTransactions(acc.getAccountNumber())) {
-            rows = rows + "<tr><td>" + escape(t.getString("date")) + "</td>"
-                    + "<td>" + escape(t.getString("type")) + "</td>"
-                    + "<td>" + money(t.getDouble("amount")) + "</td>"
-                    + "<td>" + money(t.getDouble("balance")) + "</td></tr>";
-        }
-
-        String html = "<h1>Transaction History</h1>"
-                + "<table><tr><th>Date</th><th>Type</th><th>Amount</th><th>Balance</th></tr>"
-                + rows + "</table>"
-                + "<p><a href='/home'>Back</a></p>";
-        sendPage(ex, "History", html);
-    }
-
-    private void adminPage(HttpExchange ex, HashMap<String, String> form, String method) throws IOException {
-        boolean correctPassword = method.equals("POST") && "admin123".equals(form.get("password"));
-
-        if (!correctPassword) {
-            String error = "";
-            if (method.equals("POST")) {
-                error = "<p class='err'>Wrong password</p>";
-            }
-            String html = "<h1>Admin Login</h1>" + error
-                    + "<form method='POST' action='/admin'>"
-                    + "<label>Admin Password</label><input name='password' type='password' required>"
-                    + "<button>Login</button>"
-                    + "</form>"
-                    + "<p><a href='/'>Back</a></p>";
-            sendPage(ex, "Admin", html);
-            return;
-        }
-
-        String rows = "";
-        ArrayList<Account> list = db.getAllAccounts();
-        for (Account a : list) {
-            rows = rows + "<tr><td>" + a.getAccountNumber() + "</td>"
-                    + "<td>" + escape(a.getName()) + "</td>"
-                    + "<td>" + a.getAccountType() + "</td>"
-                    + "<td>" + money(a.getBalance()) + "</td></tr>";
-        }
-
-        String html = "<h1>All Accounts</h1>"
-                + "<table><tr><th>Acc No</th><th>Name</th><th>Type</th><th>Balance</th></tr>"
-                + rows + "</table>"
-                + "<p>Total accounts: " + list.size() + "</p>"
-                + "<p><a href='/'>Back</a></p>";
-        sendPage(ex, "All Accounts", html);
     }
 
     // ===================== HELPER METHODS =====================
@@ -371,41 +291,8 @@ public class BankHandler implements HttpHandler {
         return null;
     }
 
-    // Shows a green success message (msg) or red error message (err)
-    private String messages(HashMap<String, String> query) {
-        String html = "";
-        if (query.get("msg") != null) {
-            html = html + "<p class='msg'>" + escape(query.get("msg")) + "</p>";
-        }
-        if (query.get("err") != null) {
-            html = html + "<p class='err'>" + escape(query.get("err")) + "</p>";
-        }
-        return html;
-    }
-
-    // Sends an HTML page to the browser
-    private void sendPage(HttpExchange ex, String title, String body) throws IOException {
-        String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-                + "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-                + "<title>" + title + " - Bank</title>"
-                + "<style>"
-                + "body{font-family:Arial,sans-serif;background:#eef2f7;margin:0;padding:20px;}"
-                + ".box{max-width:480px;margin:30px auto;background:white;padding:25px;border-radius:8px;"
-                + "box-shadow:0 2px 8px rgba(0,0,0,0.1);}"
-                + "h1{color:#1a4d8f;margin-top:0;}"
-                + "label{display:block;margin-top:10px;font-weight:bold;}"
-                + "input,select{width:100%;padding:8px;margin-top:4px;box-sizing:border-box;}"
-                + "button{margin-top:10px;padding:9px 18px;background:#1a4d8f;color:white;border:none;"
-                + "border-radius:4px;cursor:pointer;}"
-                + ".card{background:#f4f8fd;padding:10px 15px;border-radius:6px;}"
-                + ".balance{font-size:26px;font-weight:bold;color:#1a4d8f;}"
-                + ".msg{background:#ddf5e1;color:#1d6b2f;padding:8px;border-radius:4px;}"
-                + ".err{background:#fbe0e0;color:#a12020;padding:8px;border-radius:4px;}"
-                + "table{width:100%;border-collapse:collapse;}"
-                + "th,td{border:1px solid #ccc;padding:6px;text-align:left;font-size:14px;}"
-                + "th{background:#1a4d8f;color:white;}"
-                + "</style></head><body><div class='box'>" + body + "</div></body></html>";
-
+    // Sends an HTML page (made by the view) to the browser
+    private void send(HttpExchange ex, String html) throws IOException {
         byte[] bytes = html.getBytes("UTF-8");
         ex.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
         ex.sendResponseHeaders(200, bytes.length);
@@ -467,17 +354,7 @@ public class BankHandler implements HttpHandler {
         }
     }
 
-    private String money(double amount) {
-        return String.format("%.2f", amount);
-    }
-
     private String encode(String text) throws IOException {
         return URLEncoder.encode(text, "UTF-8");
-    }
-
-    // Stops users from putting HTML code inside their name (security)
-    private String escape(String text) {
-        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                .replace("\"", "&quot;").replace("'", "&#39;");
     }
 }

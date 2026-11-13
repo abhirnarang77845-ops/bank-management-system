@@ -1,3 +1,6 @@
+package model;
+
+// MODEL: holds account data and the banking rules.
 // Abstract class: we never create a plain "Account" object,
 // only SavingsAccount or CurrentAccount objects.
 public abstract class Account {

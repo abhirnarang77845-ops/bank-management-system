@@ -1,14 +1,21 @@
+package database;
+
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import model.Account;
+import model.CurrentAccount;
+import model.SavingsAccount;
+import model.Transaction;
 import org.bson.Document;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 
-// All MongoDB code is in this one class
+// DATABASE: all MongoDB code is in this one class.
+// It converts Java objects <-> MongoDB documents.
 public class Database {
 
     private MongoClient client;
@@ -78,11 +85,15 @@ public class Database {
         transactions.insertOne(doc);
     }
 
-    // Get all transactions of one account
-    public ArrayList<Document> getTransactions(int accNo) {
-        ArrayList<Document> list = new ArrayList<Document>();
+    // Get all transactions of one account as Transaction objects
+    public ArrayList<Transaction> getTransactions(int accNo) {
+        ArrayList<Transaction> list = new ArrayList<Transaction>();
         for (Document doc : transactions.find(new Document("accNo", accNo))) {
-            list.add(doc);
+            list.add(new Transaction(
+                    doc.getString("date"),
+                    doc.getString("type"),
+                    doc.getDouble("amount"),
+                    doc.getDouble("balance")));
         }
         return list;
     }

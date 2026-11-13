@@ -29,25 +29,48 @@ Admin password: `admin123`
 | `/admin` | Admin password, then a list of all accounts |
 | `/logout` | Logs out |
 
-## Files
+## Project structure (MVC)
 
-| File | What it does |
-|------|--------------|
-| `Account.java` | Abstract parent class: account number, name, PIN, balance |
-| `SavingsAccount.java` | Child class: must keep minimum Rs 1000 |
-| `CurrentAccount.java` | Child class: can go up to Rs 10000 below zero (overdraft) |
-| `InsufficientFundsException.java` | Our own exception for "not enough balance" |
-| `Database.java` | All MongoDB code: save, find, update accounts and transactions |
-| `BankHandler.java` | Makes the web pages and handles the forms (login, deposit...) |
-| `Main.java` | Starts the web server on port 8080 |
-| `lib/` | MongoDB Java driver jar files (library needed to connect to MongoDB) |
+The code follows the **MVC (Model-View-Controller)** pattern. Each folder is a Java **package**.
+
+```
+src/
+├── Main.java                         → starts the web server
+├── model/                            → MODEL: data + banking rules (OOP)
+│   ├── Account.java                  (abstract parent class)
+│   ├── SavingsAccount.java           (min balance Rs 1000)
+│   ├── CurrentAccount.java           (overdraft up to Rs 10000)
+│   ├── Transaction.java              (one history entry)
+│   └── InsufficientFundsException.java (custom exception)
+├── view/                             → VIEW: only builds HTML pages
+│   └── Pages.java
+├── controller/                       → CONTROLLER: handles requests, connects model + view
+│   └── BankController.java
+└── database/                         → DATABASE: all MongoDB code
+    └── Database.java
+lib/                                  → MongoDB Java driver jar files
+```
+
+| Layer | Job | Example |
+|-------|-----|---------|
+| **Model** | Holds data and rules | `SavingsAccount.withdraw()` checks the Rs 1000 minimum |
+| **View** | Shows data as HTML, no logic | `Pages.home(acc, msg, err)` builds the dashboard |
+| **Controller** | Receives the request, decides what to do | `BankController.withdraw()` calls the model, saves to DB, picks the page |
+| **Database** | Saves and loads from MongoDB | `Database.updateBalance(acc)` |
+
+```
+Browser ──request──▶ Controller ──uses──▶ Model (Account classes)
+   ▲                     │    └──save/load──▶ Database ──▶ MongoDB
+   └──── HTML page ◀── View (Pages)
+```
 
 ## How the website works (simple explanation)
 
 1. `Main` starts Java's **built-in web server** (`HttpServer`, part of the JDK, so no framework).
-2. When you open a page, the browser sends a **request**. The server passes it to `BankHandler.handle()`.
+2. When you open a page, the browser sends a **request**. The server passes it to `BankController.handle()`.
 3. `handle()` checks the **path** (like `/login` or `/deposit`) and calls the matching method.
-4. That method uses the OOP classes and `Database`, then sends back an **HTML page**.
+4. That method uses the **model** classes and `Database`, then asks the **view** (`Pages`) for the
+   HTML and sends it back.
 5. Forms use **POST** to send data (amount, PIN...). After saving, the user is **redirected**
    back to `/home` with a message like "Deposited Rs 500".
 6. **Login session:** after a correct PIN, we create a random id (UUID), store
@@ -89,7 +112,7 @@ Both child classes have their own `withdraw()` method:
 - Savings: cannot go below Rs 1000
 - Current: can go down to -10000
 
-In `BankHandler`, we just write `acc.withdraw(amount)`. Java decides at runtime which
+In `BankController`, we just write `acc.withdraw(amount)`. Java decides at runtime which
 version to run, based on whether `acc` is a Savings or Current object.
 
 **5. Abstraction**
@@ -97,16 +120,21 @@ version to run, based on whether `acc` is a Savings or Current object.
 `getAccountType()`. We cannot create an `Account` object directly, only its child classes.
 
 **6. Interface**
-`BankHandler implements HttpHandler`. `HttpHandler` is an interface from Java that has one
+`BankController implements HttpHandler`. `HttpHandler` is an interface from Java that has one
 method, `handle()`. We write that method, and the web server calls it for every request.
 
 **7. Exception Handling**
 `InsufficientFundsException` is our own exception (it `extends Exception`).
-`withdraw()` throws it, and `BankHandler` catches it with `try-catch` to show a red
+`withdraw()` throws it, and `BankController` catches it with `try-catch` to show a red
 error message on the page instead of crashing.
 
 ## Common viva questions
 
+- **What is MVC?** Model-View-Controller. The Model holds data and rules, the View shows it,
+  and the Controller connects them. Each part has one job, so the code is easier to change.
+  For example, we can redesign the pages in `Pages.java` without touching the banking rules.
+- **What is a package?** A folder that groups related classes (`model`, `view`, `controller`,
+  `database`). The first line of each file says `package model;` and other files use `import model.Account;`.
 - **Why abstract class?** Every account has a different withdraw rule, so `Account`
   only says "every account must have withdraw()" and the child classes decide how.
 - **Why MongoDB?** It stores data permanently. Without a database, all accounts

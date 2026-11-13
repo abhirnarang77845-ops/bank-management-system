@@ -1,3 +1,5 @@
+package model;
+
 // Inheritance: CurrentAccount IS-A Account
 public class CurrentAccount extends Account {
 
